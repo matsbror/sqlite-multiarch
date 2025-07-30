@@ -1,0 +1,3 @@
+FROM scratch
+COPY massive_sqlite.wasm   /massive_sqlite.wasm
+ENTRYPOINT ["/massive_sqlite.wasm"]

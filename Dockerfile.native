@@ -1,0 +1,54 @@
+# Multi-stage build for amd64
+FROM ubuntu AS builder
+
+# Install build dependencies
+RUN apt-get update
+RUN apt-get install -y build-essential 
+RUN rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Copy source files
+COPY sqlite3.c comprehensive_sqlite.c dictionary_words.h sqlite3.h ./
+
+# Build the application
+RUN gcc -DSQLITE_ENABLE_FTS3 \
+    -DSQLITE_ENABLE_FTS4 \
+    -DSQLITE_ENABLE_FTS5 \
+    -DSQLITE_ENABLE_RTREE \
+    -DSQLITE_ENABLE_JSON1 \
+    -DSQLITE_ENABLE_GEOPOLY \
+    -DSQLITE_ENABLE_MATH_FUNCTIONS \
+    -DSQLITE_ENABLE_STAT4 \
+    -DSQLITE_ENABLE_UPDATE_DELETE_LIMIT \
+    -DSQLITE_ENABLE_COLUMN_METADATA \
+    -DSQLITE_ENABLE_DBSTAT_VTAB \
+    -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
+    -DSQLITE_ENABLE_NORMALIZE \
+    -DSQLITE_ENABLE_PREUPDATE_HOOK \
+    -DSQLITE_ENABLE_SESSION \
+    -DSQLITE_ENABLE_SNAPSHOT \
+    -DSQLITE_ENABLE_STMTVTAB \
+    -DSQLITE_ENABLE_UNKNOWN_SQL_FUNCTION \
+    -DSQLITE_SOUNDEX \
+    -DSQLITE_MAX_MEMORY=268435456 \
+    -DSQLITE_OMIT_LOAD_EXTENSION \
+    -O2 -static -s \
+    sqlite3.c comprehensive_sqlite.c \
+    -o massive_sqlite \
+    -lm
+
+# Verify the binary
+RUN file massive_sqlite && \
+    ldd massive_sqlite || echo "Static binary - no dynamic dependencies" && \
+    ls -lh massive_sqlite
+
+# Final stage - scratch image
+FROM scratch
+
+# Copy the static binary
+COPY --from=builder /build/massive_sqlite /massive_sqlite
+
+# Set entrypoint
+ENTRYPOINT ["/massive_sqlite"]
