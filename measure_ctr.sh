@@ -210,16 +210,26 @@ get_repo_image_size() {
     local platform=$2
     
     if command -v docker >/dev/null 2>&1; then
-        # Try to get size from manifest
-        local size_bytes=$(docker manifest inspect $image 2>/dev/null | jq -r '
-            if .manifests then
-                (.manifests[] | select(.platform.architecture=="'$(echo $platform | cut -d'/' -f2)'") | .size // 0)
-            else
-                (.config.size // 0) + ([.layers[].size] | add // 0)
-            end
-        ' 2>/dev/null || echo "0")
+        # Get architecture from platform
+        local arch=$(echo $platform | cut -d'/' -f2)
         
-        if [ "$size_bytes" != "0" ] && [ -n "$size_bytes" ]; then
+        # Try to get size from manifest
+        local size_bytes
+        if command -v jq >/dev/null 2>&1; then
+            size_bytes=$(docker manifest inspect $image 2>/dev/null | jq -r '
+                if .manifests then
+                    (.manifests[] | select(.platform.architecture=="'$arch'") | 
+                     (.size // 0) + (if .platform.architecture=="'$arch'" then ([.. | objects | select(has("size")) | .size] | add // 0) else 0 end))
+                else
+                    (.config.size // 0) + ([.layers[]?.size] | add // 0)
+                end
+            ' 2>/dev/null || echo "0")
+        else
+            # Fallback without jq - get total compressed size estimate
+            size_bytes=$(docker manifest inspect $image 2>/dev/null | grep -o '"size":[0-9]*' | head -5 | cut -d':' -f2 | awk '{sum+=$1} END {print sum}' || echo "0")
+        fi
+        
+        if [ "$size_bytes" != "0" ] && [ -n "$size_bytes" ] && [ "$size_bytes" != "null" ]; then
             echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
         else
             echo "0"
@@ -233,18 +243,43 @@ get_repo_image_size() {
 get_docker_local_size() {
     local image=$1
     
-    local size_bytes=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "$(echo $image | sed 's/docker.io\///')" | head -1 | awk '{print $2}' | sed 's/MB//' | sed 's/GB/*1024/' | bc 2>/dev/null || echo "0")
+    # Clean image name for matching
+    local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
-    if [ "$size_bytes" = "0" ]; then
-        # Fallback: use docker inspect
-        size_bytes=$(docker inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null || echo "0")
-        if [ "$size_bytes" != "0" ] && [ -n "$size_bytes" ]; then
-            echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
-        else
-            echo "0"
-        fi
+    # Try docker images first
+    local size_str=$(docker images --format "{{.Repository}}:{{.Tag}} {{.Size}}" | grep "^$clean_image " | head -1 | awk '{print $2}')
+    
+    if [ -n "$size_str" ] && [ "$size_str" != "0B" ]; then
+        # Parse size string (e.g., "14.5MB", "1.2GB")
+        local size_num=$(echo $size_str | sed 's/[A-Za-z]//g')
+        local size_unit=$(echo $size_str | sed 's/[0-9.]//g')
+        
+        case $size_unit in
+            "MB")
+                echo "$size_num"
+                return
+                ;;
+            "GB")
+                echo "scale=2; $size_num * 1024" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+            "KB")
+                echo "scale=2; $size_num / 1024" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+            "B")
+                echo "scale=2; $size_num / 1048576" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+        esac
+    fi
+    
+    # Fallback: use docker inspect
+    local size_bytes=$(docker inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null)
+    if [ -n "$size_bytes" ] && [ "$size_bytes" != "0" ] && [ "$size_bytes" != "null" ]; then
+        echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
     else
-        echo "$size_bytes"
+        echo "0"
     fi
 }
 
@@ -252,14 +287,44 @@ get_docker_local_size() {
 get_containerd_local_size() {
     local image=$1
     
-    local size_bytes=$(sudo ctr images ls -q | grep "$(echo $image | sed 's/docker.io\///')" | head -1 | xargs sudo ctr images ls name== 2>/dev/null | tail -n +2 | awk '{print $3}' | sed 's/MiB//' | sed 's/GiB/*1024/' | bc 2>/dev/null || echo "0")
+    # Clean image name for matching
+    local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
-    if [ "$size_bytes" = "0" ]; then
-        # Alternative method using ctr content
-        size_bytes=$(sudo ctr content ls 2>/dev/null | grep -E "(application/vnd.docker|application/vnd.oci)" | awk '{sum+=$3} END {print sum/1048576}' 2>/dev/null || echo "0")
+    # Try to get size from ctr images ls
+    local size_info=$(sudo ctr images ls 2>/dev/null | grep "$clean_image" | head -1 | awk '{print $3}')
+    
+    if [ -n "$size_info" ] && [ "$size_info" != "-" ]; then
+        # Parse size (e.g., "14.5MiB", "1.2GiB")
+        local size_num=$(echo $size_info | sed 's/[A-Za-z]//g')
+        local size_unit=$(echo $size_info | sed 's/[0-9.]//g')
+        
+        case $size_unit in
+            "MiB")
+                echo "$size_num"
+                return
+                ;;
+            "GiB")
+                echo "scale=2; $size_num * 1024" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+            "KiB")
+                echo "scale=2; $size_num / 1024" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+            "B")
+                echo "scale=2; $size_num / 1048576" | bc 2>/dev/null || echo "0"
+                return
+                ;;
+        esac
     fi
     
-    echo "${size_bytes:-0}"
+    # Alternative: try to get usage from ctr content
+    local content_size=$(sudo ctr content ls 2>/dev/null | grep -v "DIGEST" | awk '{sum+=$3} END {if(sum>0) print sum/1048576; else print 0}')
+    if [ -n "$content_size" ] && [ "$content_size" != "0" ]; then
+        echo "$content_size"
+    else
+        echo "0"
+    fi
 }
 
 
