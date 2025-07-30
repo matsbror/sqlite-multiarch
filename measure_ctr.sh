@@ -20,9 +20,6 @@ TAG="latest"
 
 # Cache busting configuration
 USE_DIGEST=${USE_DIGEST:-false}
-CACHE_BUST_DELAY=${CACHE_BUST_DELAY:-true}
-MIN_DELAY=5
-MAX_DELAY=15
 
 # Detect current architecture
 ARCH=$(uname -m)
@@ -78,9 +75,6 @@ pull_image_containerd() {
         # Remove image if present and clear containerd cache
         sudo ctr image rm $image 2>/dev/null
         sudo ctr image prune --all >/dev/null 2>&1
-
-        # Cache busting delay
-        cache_bust_delay
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -148,9 +142,6 @@ pull_image_docker() {
         # Remove image if present
         docker rmi $image >/dev/null 2>&1
         docker system prune -f >/dev/null 2>&1
-
-        # Cache busting delay
-        cache_bust_delay
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -275,14 +266,6 @@ get_containerd_local_size() {
     echo "${size_bytes:-0}"
 }
 
-# Function to add cache busting delay
-cache_bust_delay() {
-    if [ "$CACHE_BUST_DELAY" = "true" ]; then
-        local delay=$((RANDOM % (MAX_DELAY - MIN_DELAY + 1) + MIN_DELAY))
-        echo -n "cache-bust delay: ${delay}s... "
-        sleep $delay
-    fi
-}
 
 # Function to test image with both runtimes
 test_image() {
@@ -328,7 +311,6 @@ test_image() {
 }
 
 echo "Starting performance measurements: Native vs WebAssembly comparison"
-echo "Cache busting delay: $CACHE_BUST_DELAY"
 echo "Use digest: $USE_DIGEST"
 echo ""
 
