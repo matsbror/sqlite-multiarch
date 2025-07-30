@@ -14,7 +14,7 @@ n=$1
 output_file="timing_results.csv"
 
 # Image configuration
-REPO="matsbror/massive-sqlite"
+NATIVE_REPO="matsbror/massive-sqlite-native"
 WASM_REPO="matsbror/massive-sqlite-wasm"
 TAG="latest"
 
@@ -26,15 +26,12 @@ ARCH=$(uname -m)
 case $ARCH in
     x86_64)
         PLATFORM="linux/amd64"
-        IMAGE_SUFFIX="amd64"
         ;;
     aarch64|arm64)
         PLATFORM="linux/arm64"
-        IMAGE_SUFFIX="arm64"
         ;;
     riscv64)
         PLATFORM="linux/riscv64"
-        IMAGE_SUFFIX="riscv64"
         ;;
     *)
         echo "Error: Unsupported architecture: $ARCH"
@@ -50,7 +47,6 @@ echo "SQLite Native Architecture Performance Measurement"
 echo "================================================="
 echo "Current architecture: $ARCH"
 echo "Platform: $PLATFORM"
-echo "Image suffix: $IMAGE_SUFFIX"
 echo "Iterations: $n"
 echo "Output file: $output_file"
 echo ""
@@ -314,8 +310,8 @@ echo "Starting performance measurements: Native vs WebAssembly comparison"
 echo "Use digest: $USE_DIGEST"
 echo ""
 
-# Test native architecture image
-NATIVE_IMAGE="docker.io/$REPO:$TAG-$IMAGE_SUFFIX"
+# Test native architecture image (multiarch)
+NATIVE_IMAGE="docker.io/$NATIVE_REPO:$TAG"
 test_image "$NATIVE_IMAGE" "$PLATFORM" "Native ($ARCH)"
 
 # Test WebAssembly image
