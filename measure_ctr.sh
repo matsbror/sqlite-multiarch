@@ -69,8 +69,8 @@ pull_image_nerdctl() {
         echo -n "  Iteration $i/$n... "
         
         # Remove image if present and clear nerdctl cache
-        nerdctl rmi $image 2>/dev/null
-        nerdctl system prune -f >/dev/null 2>&1
+        sudo nerdctl rmi $image 2>/dev/null
+        sudo nerdctl system prune -f >/dev/null 2>&1
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -78,9 +78,9 @@ pull_image_nerdctl() {
         
         # Pull image
         if [ -z "$platform" ]; then
-            nerdctl pull $image >/dev/null 2>&1
+            sudo nerdctl pull $image >/dev/null 2>&1
         else
-            nerdctl pull --platform $platform $image >/dev/null 2>&1
+            sudo nerdctl pull --platform $platform $image >/dev/null 2>&1
         fi
         
         # Timestamp after pull complete
@@ -89,9 +89,9 @@ pull_image_nerdctl() {
         
         # Execute container (with appropriate runtime for WASM)
         if [[ $image == *"wasm"* ]]; then
-            nerdctl run --rm --runtime io.containerd.wasmtime.v1 $image >/dev/null 2>&1
+            sudo nerdctl run --rm --runtime io.containerd.wasmtime.v1 $image >/dev/null 2>&1
         else
-            nerdctl run --rm $image >/dev/null 2>&1
+            sudo nerdctl run --rm $image >/dev/null 2>&1
         fi
         
         # Timestamp after execution complete
@@ -291,7 +291,7 @@ get_nerdctl_local_size() {
     local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
     # Try to get size from nerdctl images (similar to docker)
-    local size_str=$(nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$clean_image " | head -1 | awk '{print $2}')
+    local size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$clean_image " | head -1 | awk '{print $2}')
     
     if [ -n "$size_str" ] && [ "$size_str" != "0B" ]; then
         # Parse size string (e.g., "14.5MB", "1.2GB")
@@ -319,7 +319,7 @@ get_nerdctl_local_size() {
     fi
     
     # Fallback: use nerdctl inspect
-    local size_bytes=$(nerdctl inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null)
+    local size_bytes=$(sudo nerdctl inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null)
     if [ -n "$size_bytes" ] && [ "$size_bytes" != "0" ] && [ "$size_bytes" != "null" ]; then
         echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
     else
