@@ -59,7 +59,7 @@ echo "Output file: $output_file"
 echo ""
 
 # Create CSV header
-echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s)" > $output_file
+echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s),Repo Size (MB),Host Size (MB)" > $output_file
 
 # Function to measure containerd pulls
 pull_image_containerd() {
@@ -115,10 +115,14 @@ pull_image_containerd() {
         accumulated_pull_time=$(echo "$accumulated_pull_time + $pull_elapsed" | bc)
         accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
         
-        # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed" >> $output_file
+        # Get image sizes
+        repo_size=$(get_repo_image_size $image $platform)
+        host_size=$(get_containerd_local_size $image)
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s"
+        # Log to CSV
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$repo_size,$host_size" >> $output_file
+        
+        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, repo: ${repo_size}MB, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -181,10 +185,14 @@ pull_image_docker() {
         accumulated_pull_time=$(echo "$accumulated_pull_time + $pull_elapsed" | bc)
         accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
         
-        # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed" >> $output_file
+        # Get image sizes
+        repo_size=$(get_repo_image_size $image $platform)
+        host_size=$(get_docker_local_size $image)
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s"
+        # Log to CSV
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$repo_size,$host_size" >> $output_file
+        
+        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, repo: ${repo_size}MB, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -207,6 +215,64 @@ get_image_digest() {
     else
         echo ""
     fi
+}
+
+# Function to get repository image size
+get_repo_image_size() {
+    local image=$1
+    local platform=$2
+    
+    if command -v docker >/dev/null 2>&1; then
+        # Try to get size from manifest
+        local size_bytes=$(docker manifest inspect $image 2>/dev/null | jq -r '
+            if .manifests then
+                (.manifests[] | select(.platform.architecture=="'$(echo $platform | cut -d'/' -f2)'") | .size // 0)
+            else
+                (.config.size // 0) + ([.layers[].size] | add // 0)
+            end
+        ' 2>/dev/null || echo "0")
+        
+        if [ "$size_bytes" != "0" ] && [ -n "$size_bytes" ]; then
+            echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
+        else
+            echo "0"
+        fi
+    else
+        echo "0"
+    fi
+}
+
+# Function to get local image size (Docker)
+get_docker_local_size() {
+    local image=$1
+    
+    local size_bytes=$(docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep "$(echo $image | sed 's/docker.io\///')" | head -1 | awk '{print $2}' | sed 's/MB//' | sed 's/GB/*1024/' | bc 2>/dev/null || echo "0")
+    
+    if [ "$size_bytes" = "0" ]; then
+        # Fallback: use docker inspect
+        size_bytes=$(docker inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null || echo "0")
+        if [ "$size_bytes" != "0" ] && [ -n "$size_bytes" ]; then
+            echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
+        else
+            echo "0"
+        fi
+    else
+        echo "$size_bytes"
+    fi
+}
+
+# Function to get local image size (containerd)
+get_containerd_local_size() {
+    local image=$1
+    
+    local size_bytes=$(sudo ctr images ls -q | grep "$(echo $image | sed 's/docker.io\///')" | head -1 | xargs sudo ctr images ls name== 2>/dev/null | tail -n +2 | awk '{print $3}' | sed 's/MiB//' | sed 's/GiB/*1024/' | bc 2>/dev/null || echo "0")
+    
+    if [ "$size_bytes" = "0" ]; then
+        # Alternative method using ctr content
+        size_bytes=$(sudo ctr content ls 2>/dev/null | grep -E "(application/vnd.docker|application/vnd.oci)" | awk '{sum+=$3} END {print sum/1048576}' 2>/dev/null || echo "0")
+    fi
+    
+    echo "${size_bytes:-0}"
 }
 
 # Function to add cache busting delay
@@ -289,19 +355,33 @@ try:
     df['Image Type'] = df['Image'].apply(lambda x: 'WebAssembly' if 'wasm' in x else 'Native')
     
     print('Average Performance by Runtime and Image Type:')
-    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Execution Time (s)']].mean()
+    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Execution Time (s)', 'Repo Size (MB)', 'Host Size (MB)']].mean()
     print(summary.round(3))
     
     print('\nOverall averages by Image Type:')
-    overall = df.groupby('Image Type')[['Pull Time (s)', 'Execution Time (s)']].mean()
+    overall = df.groupby('Image Type')[['Pull Time (s)', 'Execution Time (s)', 'Repo Size (MB)', 'Host Size (MB)']].mean()
     print(overall.round(3))
+    
+    print('\nSize comparison (Native vs WASM):')
+    native_repo = df[df['Image Type'] == 'Native']['Repo Size (MB)'].mean()
+    wasm_repo = df[df['Image Type'] == 'WebAssembly']['Repo Size (MB)'].mean()
+    native_host = df[df['Image Type'] == 'Native']['Host Size (MB)'].mean()
+    wasm_host = df[df['Image Type'] == 'WebAssembly']['Host Size (MB)'].mean()
+    
+    if native_repo > 0 and wasm_repo > 0:
+        repo_ratio = wasm_repo / native_repo
+        print(f'WASM repo size is {repo_ratio:.2f}x the Native repo size ({wasm_repo:.1f}MB vs {native_repo:.1f}MB)')
+    
+    if native_host > 0 and wasm_host > 0:
+        host_ratio = wasm_host / native_host  
+        print(f'WASM host size is {host_ratio:.2f}x the Native host size ({wasm_host:.1f}MB vs {native_host:.1f}MB)')
     
     print('\nExecution time comparison (Native vs WASM):')
     native_exec = df[df['Image Type'] == 'Native']['Execution Time (s)'].mean()
     wasm_exec = df[df['Image Type'] == 'WebAssembly']['Execution Time (s)'].mean()
     if native_exec > 0 and wasm_exec > 0:
-        ratio = wasm_exec / native_exec
-        print(f'WebAssembly is {ratio:.2f}x slower than Native for execution')
+        exec_ratio = wasm_exec / native_exec
+        print(f'WebAssembly is {exec_ratio:.2f}x slower than Native for execution ({wasm_exec:.3f}s vs {native_exec:.3f}s)')
     
 except Exception as e:
     print(f'Error analyzing CSV file: {e}')
