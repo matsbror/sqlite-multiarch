@@ -68,9 +68,14 @@ pull_image_containerd() {
     do
         echo -n "  Iteration $i/$n... "
         
-        # Remove image if present and clear containerd cache
+        # Remove image if present and clear containerd cache thoroughly
         sudo ctr image rm $image 2>/dev/null
         sudo ctr image prune --all >/dev/null 2>&1
+        # Also clear content store blobs and snapshots
+        sudo ctr content prune >/dev/null 2>&1
+        sudo ctr snapshots prune >/dev/null 2>&1
+        # Clear any remaining content with force
+        sudo ctr content ls -q 2>/dev/null | head -20 | xargs -r sudo ctr content rm 2>/dev/null || true
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
