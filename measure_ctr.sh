@@ -376,24 +376,24 @@ get_containerd_local_size() {
     # Clean image name for matching
     local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
-    # Try to get size from ctr images ls
-    local size_info=$(sudo ctr images ls 2>/dev/null | grep "$clean_image" | head -1 | awk '{print $3}')
+    # Try to get size from ctr images ls - be more flexible with image name matching
+    local size_info=$(sudo ctr images ls 2>/dev/null | grep -E "(${clean_image}|${image})" | head -1 | awk '{print $3}')
     
     if [ -n "$size_info" ] && [ "$size_info" != "-" ]; then
-        # Parse size (e.g., "14.5MiB", "1.2GiB")
+        # Parse size (e.g., "14.5MiB", "1.2GiB")  
         local size_num=$(echo $size_info | sed 's/[A-Za-z]//g')
         local size_unit=$(echo $size_info | sed 's/[0-9.]//g')
         
         case $size_unit in
-            "MiB")
+            "MiB"|"MB")
                 echo "$size_num"
                 return
                 ;;
-            "GiB")
+            "GiB"|"GB")
                 echo "scale=2; $size_num * 1024" | bc 2>/dev/null || echo "0"
                 return
                 ;;
-            "KiB")
+            "KiB"|"KB")
                 echo "scale=2; $size_num / 1024" | bc 2>/dev/null || echo "0"
                 return
                 ;;
@@ -521,16 +521,20 @@ try:
     print('\nContainer startup time comparison (Native vs WASM):')
     native_startup = df[df['Image Type'] == 'Native']['Container Start to Main Time (s)'].mean()
     wasm_startup = df[df['Image Type'] == 'WebAssembly']['Container Start to Main Time (s)'].mean()
-    if native_startup > 0 and wasm_startup > 0:
+    if not pd.isna(native_startup) and not pd.isna(wasm_startup) and native_startup > 0 and wasm_startup > 0:
         startup_ratio = wasm_startup / native_startup
         print(f'WASM startup is {startup_ratio:.2f}x slower than Native ({wasm_startup:.3f}s vs {native_startup:.3f}s)')
+    else:
+        print(f'Native startup time: {native_startup:.3f}s, WASM startup time: {wasm_startup:.3f}s (one or both may be NaN)')
     
     print('\nProgram execution time comparison (main to elapsed):')
     native_prog = df[df['Image Type'] == 'Native']['Main to Elapsed Time (s)'].mean()
     wasm_prog = df[df['Image Type'] == 'WebAssembly']['Main to Elapsed Time (s)'].mean()
-    if native_prog > 0 and wasm_prog > 0:
+    if not pd.isna(native_prog) and not pd.isna(wasm_prog) and native_prog > 0 and wasm_prog > 0:
         prog_ratio = wasm_prog / native_prog
         print(f'WASM program execution is {prog_ratio:.2f}x slower than Native ({wasm_prog:.3f}s vs {native_prog:.3f}s)')
+    else:
+        print(f'Native program time: {native_prog:.3f}s, WASM program time: {wasm_prog:.3f}s (one or both may be NaN)')
     
 except Exception as e:
     print(f'Error analyzing CSV file: {e}')
