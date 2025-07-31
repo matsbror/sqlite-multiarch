@@ -122,14 +122,17 @@ pull_image_containerd() {
         # Calculate container start to main time (if main timestamp available)
         container_to_main=""
         if [ -n "$main_timestamp" ]; then
+            # main_timestamp is in milliseconds, pull_complete_timestamp is in seconds
+            # Convert pull_complete_timestamp to milliseconds and calculate difference in seconds
             container_to_main=$(echo "scale=3; ($main_timestamp - $pull_complete_timestamp * 1000) / 1000" | bc)
         else
             container_to_main="N/A"
         fi
         
-        # Calculate main to elapsed time (if both timestamps available)
+        # Calculate main to elapsed time (elapsed_timestamp is duration in milliseconds)
         main_to_elapsed=""
-        if [ -n "$main_timestamp" ] && [ -n "$elapsed_timestamp" ]; then
+        if [ -n "$elapsed_timestamp" ]; then
+            # elapsed_timestamp is duration in milliseconds, convert to seconds
             main_to_elapsed=$(echo "scale=3; $elapsed_timestamp / 1000" | bc)
         else
             main_to_elapsed="N/A"
@@ -221,14 +224,17 @@ pull_image_docker() {
         # Calculate container start to main time (if main timestamp available)
         container_to_main=""
         if [ -n "$main_timestamp" ]; then
+            # main_timestamp is in milliseconds, pull_complete_timestamp is in seconds
+            # Convert pull_complete_timestamp to milliseconds and calculate difference in seconds
             container_to_main=$(echo "scale=3; ($main_timestamp - $pull_complete_timestamp * 1000) / 1000" | bc)
         else
             container_to_main="N/A"
         fi
         
-        # Calculate main to elapsed time (if both timestamps available)
+        # Calculate main to elapsed time (elapsed_timestamp is duration in milliseconds)
         main_to_elapsed=""
-        if [ -n "$main_timestamp" ] && [ -n "$elapsed_timestamp" ]; then
+        if [ -n "$elapsed_timestamp" ]; then
+            # elapsed_timestamp is duration in milliseconds, convert to seconds
             main_to_elapsed=$(echo "scale=3; $elapsed_timestamp / 1000" | bc)
         else
             main_to_elapsed="N/A"
