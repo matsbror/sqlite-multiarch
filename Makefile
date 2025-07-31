@@ -86,11 +86,11 @@ DOCKER_TAG ?= latest
 docker-build-push:
 	@echo "Building multi-architecture Docker images for $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
 	@echo "Building AMD64 image..."
-	docker buildx build --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --output type=image,push=true .
+	docker buildx build --no-cache --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --output type=image,push=true .
 	@echo "Building ARM64 image..."
-	docker buildx build --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --output type=image,push=true .
+	docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --output type=image,push=true .
 	@echo "Building RISC-V image..."
-	docker buildx build --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --output type=image,push=true .
+	docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --output type=image,push=true .
 	@echo "All builds completed successfully!"
 	@echo "Images created:"
 	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64"
@@ -117,11 +117,11 @@ docker-build-push:
 docker-build:
 	@echo "Building multi-architecture Docker images locally for $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
 	@echo "Building AMD64 image..."
-	docker buildx build --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --load .
+	docker buildx build --no-cache --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --load .
 	@echo "Building ARM64 image..."
-	docker buildx build --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --load .
+	docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --load .
 	@echo "Building RISC-V image..."
-	docker buildx build --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --load .
+	docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --load .
 	@echo "Local Docker builds completed successfully!"
 
 # Test native binary

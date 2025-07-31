@@ -106,13 +106,21 @@ pull_image_containerd() {
         # Extract main timestamp (looking for "main, timestamp, <number>")
         main_line=$(echo "$exec_output" | grep "main, timestamp," | head -1)
         if [ -n "$main_line" ]; then
-            main_timestamp=$(echo "$main_line" | sed 's/.*main, timestamp, \([0-9]*\).*/\1/')
+            main_timestamp=$(echo "$main_line" | sed -n 's/.*main, timestamp, \([0-9][0-9]*\).*/\1/p')
+            # If sed didn't work, try a simpler approach
+            if [ -z "$main_timestamp" ]; then
+                main_timestamp=$(echo "$main_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
         fi
         
         # Extract elapsed timestamp (looking for "duration, elapsed time, <number>")
         elapsed_line=$(echo "$exec_output" | grep "duration, elapsed time," | head -1)
         if [ -n "$elapsed_line" ]; then
-            elapsed_timestamp=$(echo "$elapsed_line" | sed 's/.*duration, elapsed time, \([0-9]*\).*/\1/')
+            elapsed_timestamp=$(echo "$elapsed_line" | sed -n 's/.*duration, elapsed time, \([0-9][0-9]*\).*/\1/p')
+            # If sed didn't work, try a simpler approach
+            if [ -z "$elapsed_timestamp" ]; then
+                elapsed_timestamp=$(echo "$elapsed_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
         fi
 
         # Calculate times
@@ -208,13 +216,21 @@ pull_image_docker() {
         # Extract main timestamp (looking for "main, timestamp, <number>")
         main_line=$(echo "$exec_output" | grep "main, timestamp," | head -1)
         if [ -n "$main_line" ]; then
-            main_timestamp=$(echo "$main_line" | sed 's/.*main, timestamp, \([0-9]*\).*/\1/')
+            main_timestamp=$(echo "$main_line" | sed -n 's/.*main, timestamp, \([0-9][0-9]*\).*/\1/p')
+            # If sed didn't work, try a simpler approach
+            if [ -z "$main_timestamp" ]; then
+                main_timestamp=$(echo "$main_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
         fi
         
         # Extract elapsed timestamp (looking for "duration, elapsed time, <number>")
         elapsed_line=$(echo "$exec_output" | grep "duration, elapsed time," | head -1)
         if [ -n "$elapsed_line" ]; then
-            elapsed_timestamp=$(echo "$elapsed_line" | sed 's/.*duration, elapsed time, \([0-9]*\).*/\1/')
+            elapsed_timestamp=$(echo "$elapsed_line" | sed -n 's/.*duration, elapsed time, \([0-9][0-9]*\).*/\1/p')
+            # If sed didn't work, try a simpler approach
+            if [ -z "$elapsed_timestamp" ]; then
+                elapsed_timestamp=$(echo "$elapsed_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
         fi
 
         # Calculate times

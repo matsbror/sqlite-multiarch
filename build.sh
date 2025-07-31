@@ -11,15 +11,15 @@ echo "Building multi-architecture Docker images for $IMAGE_NAME:$TAG"
 
 # Build AMD64 image
 echo "Building AMD64 image..."
-docker buildx build  --platform linux/amd64 -f Dockerfile.native -t ${IMAGE_NAME}:${TAG}-amd64 --provenance false --output type=image,push=true .
+docker buildx build --no-cache --platform linux/amd64 -f Dockerfile.native -t ${IMAGE_NAME}:${TAG}-amd64 --provenance false --output type=image,push=true .
 
 # Build ARM64 image
 echo "Building ARM64 image..."
-docker buildx build  --platform linux/arm64 -f Dockerfile.native -t ${IMAGE_NAME}:${TAG}-arm64 --provenance false --output type=image,push=true .
+docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t ${IMAGE_NAME}:${TAG}-arm64 --provenance false --output type=image,push=true .
 
 # Build RISCV64 image
 echo "Building RISCV64 image..."
-docker buildx build  --platform linux/riscv64 -f Dockerfile.riscv64 -t ${IMAGE_NAME}:${TAG}-riscv64 --provenance false --output type=image,push=true .
+docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t ${IMAGE_NAME}:${TAG}-riscv64 --provenance false --output type=image,push=true .
 
 
 echo "All builds completed successfully!"
