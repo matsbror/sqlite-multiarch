@@ -52,7 +52,7 @@ echo "Output file: $output_file"
 echo ""
 
 # Create CSV header
-echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s),Host Size (MB)" > $output_file
+echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Container Start to Main Time (s),Main to Elapsed Time (s),Total Execution Time (s),Host Size (MB)" > $output_file
 
 # Function to measure containerd pulls
 pull_image_containerd() {
@@ -87,31 +87,64 @@ pull_image_containerd() {
         pull_complete_timestamp=$(date +%s)
         pull_complete_time=$(date +%s.%3N)
         
-        # Execute container (with appropriate runtime for WASM)
+        # Execute container and capture output with timestamps
+        exec_output=""
         if [[ $image == *"wasm"* ]]; then
-            sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image test-container-$i >/dev/null 2>&1
+            exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image test-container-$i 2>&1)
         else
-            sudo ctr run --rm $image test-container-$i >/dev/null 2>&1
+            exec_output=$(sudo ctr run --rm $image test-container-$i 2>&1)
         fi
         
         # Timestamp after execution complete
         exec_complete_timestamp=$(date +%s)
         exec_complete_time=$(date +%s.%3N)
 
+        # Parse timestamps from output
+        main_timestamp=""
+        elapsed_timestamp=""
+        
+        # Extract main timestamp (looking for "main, timestamp, <number>")
+        main_line=$(echo "$exec_output" | grep "main, timestamp," | head -1)
+        if [ -n "$main_line" ]; then
+            main_timestamp=$(echo "$main_line" | sed 's/.*main, timestamp, \([0-9]*\).*/\1/')
+        fi
+        
+        # Extract elapsed timestamp (looking for "duration, elapsed time, <number>")
+        elapsed_line=$(echo "$exec_output" | grep "duration, elapsed time," | head -1)
+        if [ -n "$elapsed_line" ]; then
+            elapsed_timestamp=$(echo "$elapsed_line" | sed 's/.*duration, elapsed time, \([0-9]*\).*/\1/')
+        fi
+
         # Calculate times
         pull_elapsed=$(echo "$pull_complete_time - $start_time" | bc)
-        exec_elapsed=$(echo "$exec_complete_time - $pull_complete_time" | bc)
+        total_exec_elapsed=$(echo "$exec_complete_time - $pull_complete_time" | bc)
+        
+        # Calculate container start to main time (if main timestamp available)
+        container_to_main=""
+        if [ -n "$main_timestamp" ]; then
+            container_to_main=$(echo "scale=3; ($main_timestamp - $pull_complete_timestamp * 1000) / 1000" | bc)
+        else
+            container_to_main="N/A"
+        fi
+        
+        # Calculate main to elapsed time (if both timestamps available)
+        main_to_elapsed=""
+        if [ -n "$main_timestamp" ] && [ -n "$elapsed_timestamp" ]; then
+            main_to_elapsed=$(echo "scale=3; $elapsed_timestamp / 1000" | bc)
+        else
+            main_to_elapsed="N/A"
+        fi
         
         accumulated_pull_time=$(echo "$accumulated_pull_time + $pull_elapsed" | bc)
-        accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
+        accumulated_exec_time=$(echo "$accumulated_exec_time + $total_exec_elapsed" | bc)
         
         # Get image sizes
         host_size=$(get_containerd_local_size $image)
         
         # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$host_size" >> $output_file
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$container_to_main,$main_to_elapsed,$total_exec_elapsed,$host_size" >> $output_file
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, host: ${host_size}MB"
+        echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -153,31 +186,64 @@ pull_image_docker() {
         pull_complete_timestamp=$(date +%s)
         pull_complete_time=$(date +%s.%3N)
         
-        # Execute container (with appropriate runtime for WASM)
+        # Execute container and capture output with timestamps
+        exec_output=""
         if [[ $image == *"wasm"* ]]; then
-            docker run --rm --runtime io.containerd.wasmtime.v1 $image >/dev/null 2>&1
+            exec_output=$(docker run --rm --runtime io.containerd.wasmtime.v1 $image 2>&1)
         else
-            docker run --rm $image >/dev/null 2>&1
+            exec_output=$(docker run --rm $image 2>&1)
         fi
         
         # Timestamp after execution complete
         exec_complete_timestamp=$(date +%s)
         exec_complete_time=$(date +%s.%3N)
 
+        # Parse timestamps from output
+        main_timestamp=""
+        elapsed_timestamp=""
+        
+        # Extract main timestamp (looking for "main, timestamp, <number>")
+        main_line=$(echo "$exec_output" | grep "main, timestamp," | head -1)
+        if [ -n "$main_line" ]; then
+            main_timestamp=$(echo "$main_line" | sed 's/.*main, timestamp, \([0-9]*\).*/\1/')
+        fi
+        
+        # Extract elapsed timestamp (looking for "duration, elapsed time, <number>")
+        elapsed_line=$(echo "$exec_output" | grep "duration, elapsed time," | head -1)
+        if [ -n "$elapsed_line" ]; then
+            elapsed_timestamp=$(echo "$elapsed_line" | sed 's/.*duration, elapsed time, \([0-9]*\).*/\1/')
+        fi
+
         # Calculate times
         pull_elapsed=$(echo "$pull_complete_time - $start_time" | bc)
-        exec_elapsed=$(echo "$exec_complete_time - $pull_complete_time" | bc)
+        total_exec_elapsed=$(echo "$exec_complete_time - $pull_complete_time" | bc)
+        
+        # Calculate container start to main time (if main timestamp available)
+        container_to_main=""
+        if [ -n "$main_timestamp" ]; then
+            container_to_main=$(echo "scale=3; ($main_timestamp - $pull_complete_timestamp * 1000) / 1000" | bc)
+        else
+            container_to_main="N/A"
+        fi
+        
+        # Calculate main to elapsed time (if both timestamps available)
+        main_to_elapsed=""
+        if [ -n "$main_timestamp" ] && [ -n "$elapsed_timestamp" ]; then
+            main_to_elapsed=$(echo "scale=3; $elapsed_timestamp / 1000" | bc)
+        else
+            main_to_elapsed="N/A"
+        fi
         
         accumulated_pull_time=$(echo "$accumulated_pull_time + $pull_elapsed" | bc)
-        accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
+        accumulated_exec_time=$(echo "$accumulated_exec_time + $total_exec_elapsed" | bc)
         
         # Get image sizes
         host_size=$(get_docker_local_size $image)
         
         # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$host_size" >> $output_file
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$container_to_main,$main_to_elapsed,$total_exec_elapsed,$host_size" >> $output_file
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, host: ${host_size}MB"
+        echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -396,11 +462,11 @@ try:
     df['Image Type'] = df['Image'].apply(lambda x: 'WebAssembly' if 'wasm' in x else 'Native')
     
     print('Average Performance by Runtime and Image Type:')
-    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Execution Time (s)', 'Host Size (MB)']].mean()
+    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Container Start to Main Time (s)', 'Main to Elapsed Time (s)', 'Total Execution Time (s)', 'Host Size (MB)']].mean()
     print(summary.round(3))
     
     print('\nOverall averages by Image Type:')
-    overall = df.groupby('Image Type')[['Pull Time (s)', 'Execution Time (s)', 'Host Size (MB)']].mean()
+    overall = df.groupby('Image Type')[['Pull Time (s)', 'Container Start to Main Time (s)', 'Main to Elapsed Time (s)', 'Total Execution Time (s)', 'Host Size (MB)']].mean()
     print(overall.round(3))
     
     print('\nHost size comparison (Native vs WASM):')
@@ -424,11 +490,25 @@ try:
         print(f'WASM pulls are {pull_ratio:.2f}x slower than Native ({wasm_pull:.3f}s vs {native_pull:.3f}s)')
     
     print('\nExecution time comparison (Native vs WASM):')
-    native_exec = df[df['Image Type'] == 'Native']['Execution Time (s)'].mean()
-    wasm_exec = df[df['Image Type'] == 'WebAssembly']['Execution Time (s)'].mean()
+    native_exec = df[df['Image Type'] == 'Native']['Total Execution Time (s)'].mean()
+    wasm_exec = df[df['Image Type'] == 'WebAssembly']['Total Execution Time (s)'].mean()
     if native_exec > 0 and wasm_exec > 0:
         exec_ratio = wasm_exec / native_exec
         print(f'WASM execution is {exec_ratio:.2f}x slower than Native ({wasm_exec:.3f}s vs {native_exec:.3f}s)')
+    
+    print('\nContainer startup time comparison (Native vs WASM):')
+    native_startup = df[df['Image Type'] == 'Native']['Container Start to Main Time (s)'].mean()
+    wasm_startup = df[df['Image Type'] == 'WebAssembly']['Container Start to Main Time (s)'].mean()
+    if native_startup > 0 and wasm_startup > 0:
+        startup_ratio = wasm_startup / native_startup
+        print(f'WASM startup is {startup_ratio:.2f}x slower than Native ({wasm_startup:.3f}s vs {native_startup:.3f}s)')
+    
+    print('\nProgram execution time comparison (main to elapsed):')
+    native_prog = df[df['Image Type'] == 'Native']['Main to Elapsed Time (s)'].mean()
+    wasm_prog = df[df['Image Type'] == 'WebAssembly']['Main to Elapsed Time (s)'].mean()
+    if native_prog > 0 and wasm_prog > 0:
+        prog_ratio = wasm_prog / native_prog
+        print(f'WASM program execution is {prog_ratio:.2f}x slower than Native ({wasm_prog:.3f}s vs {native_prog:.3f}s)')
     
 except Exception as e:
     print(f'Error analyzing CSV file: {e}')

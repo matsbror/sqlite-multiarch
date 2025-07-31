@@ -13,7 +13,7 @@ RUN rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 
 # Copy source files
-COPY sqlite3.c comprehensive_sqlite.c dictionary_words.h sqlite3.h ./
+COPY sqlite3.c comprehensive_sqlite.c dictionary_words.h sqlite3.h timestamps.h ./
 
 # Build the application natively for riscv64
 RUN gcc -DSQLITE_ENABLE_FTS3 \

@@ -77,6 +77,53 @@ dictionary_words.h:
 clean:
 	rm -f $(TARGET_NATIVE) $(TARGET_WASM)
 
+# Docker build configuration
+DOCKER_IMAGE_NAME ?= matsbror/massive-sqlite-native
+DOCKER_TAG ?= latest
+
+# Build and push Docker images for all architectures
+.PHONY: docker-build-push
+docker-build-push:
+	@echo "Building multi-architecture Docker images for $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "Building AMD64 image..."
+	docker buildx build --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --output type=image,push=true .
+	@echo "Building ARM64 image..."
+	docker buildx build --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --output type=image,push=true .
+	@echo "Building RISC-V image..."
+	docker buildx build --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --output type=image,push=true .
+	@echo "All builds completed successfully!"
+	@echo "Images created:"
+	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64"
+	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64"
+	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64"
+	@if command -v docker manifest >/dev/null 2>&1; then \
+		echo "Creating multi-architecture manifest..."; \
+		docker manifest create $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) \
+			$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 \
+			$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 \
+			$(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64; \
+		docker manifest annotate $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --arch amd64; \
+		docker manifest annotate $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --arch arm64; \
+		docker manifest annotate $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --arch riscv64; \
+		echo "Multi-arch manifest created: $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"; \
+		docker manifest push $(DOCKER_IMAGE_NAME):$(DOCKER_TAG); \
+		echo "Multi-arch manifest pushed successfully!"; \
+	else \
+		echo "docker manifest command not available, skipping multi-arch manifest"; \
+	fi
+
+# Build Docker images locally (without pushing)
+.PHONY: docker-build
+docker-build:
+	@echo "Building multi-architecture Docker images locally for $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)"
+	@echo "Building AMD64 image..."
+	docker buildx build --platform linux/amd64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64 --provenance false --load .
+	@echo "Building ARM64 image..."
+	docker buildx build --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --load .
+	@echo "Building RISC-V image..."
+	docker buildx build --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --load .
+	@echo "Local Docker builds completed successfully!"
+
 # Test native binary
 .PHONY: test-native
 test-native: $(TARGET_NATIVE)
@@ -99,14 +146,16 @@ info:
 	@echo "WASI sysroot: $(WASI_SYSROOT)"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  all        - Build both native and WASM"
-	@echo "  native     - Build native binary"
-	@echo "  wasm       - Build WebAssembly binary"
-	@echo "  dictionary - Generate dictionary header"
-	@echo "  clean      - Remove build artifacts"
-	@echo "  test-native - Test native binary"
-	@echo "  test-wasm   - Test WASM binary (requires wasmtime)"
-	@echo "  info       - Show this information"
+	@echo "  all             - Build both native and WASM"
+	@echo "  native          - Build native binary"
+	@echo "  wasm            - Build WebAssembly binary"
+	@echo "  dictionary      - Generate dictionary header"
+	@echo "  clean           - Remove build artifacts"
+	@echo "  test-native     - Test native binary"
+	@echo "  test-wasm       - Test WASM binary (requires wasmtime)"
+	@echo "  docker-build    - Build Docker images locally"
+	@echo "  docker-build-push - Build and push Docker images to registry"
+	@echo "  info            - Show this information"
 
 # Help target
 .PHONY: help
