@@ -174,8 +174,14 @@ pull_image_containerd() {
         # Get image sizes
         host_size=$(get_containerd_local_size $image)
         
-        # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$container_to_main,$main_to_elapsed,$total_exec_elapsed,$host_size" >> $output_file
+        # Log to CSV - ensure no commas in values by quoting and validate field count
+        csv_line="\"$runtime_name\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        field_count=$(echo "$csv_line" | tr ',' '\n' | wc -l)
+        if [ "$field_count" -eq 12 ]; then
+            echo "$csv_line" >> $output_file
+        else
+            echo "ERROR: CSV line has $field_count fields instead of 12: $csv_line" >&2
+        fi
         
         echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
     done
@@ -303,8 +309,14 @@ pull_image_docker() {
         # Get image sizes
         host_size=$(get_docker_local_size $image)
         
-        # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$container_to_main,$main_to_elapsed,$total_exec_elapsed,$host_size" >> $output_file
+        # Log to CSV - ensure no commas in values by quoting and validate field count
+        csv_line="\"$runtime_name\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        field_count=$(echo "$csv_line" | tr ',' '\n' | wc -l)
+        if [ "$field_count" -eq 12 ]; then
+            echo "$csv_line" >> $output_file
+        else
+            echo "ERROR: CSV line has $field_count fields instead of 12: $csv_line" >&2
+        fi
         
         echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
     done
@@ -519,7 +531,8 @@ if command -v python3 >/dev/null 2>&1; then
     python3 -c "
 import pandas as pd
 try:
-    df = pd.read_csv('$output_file')
+    # Read CSV with error handling for malformed lines
+    df = pd.read_csv('$output_file', on_bad_lines='skip', quoting=1)
     
     # Determine image type based on image name
     df['Image Type'] = df['Image'].apply(lambda x: 'WebAssembly' if 'wasm' in x else 'Native')

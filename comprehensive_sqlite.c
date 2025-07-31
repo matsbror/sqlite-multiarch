@@ -7,6 +7,15 @@
 #include <sys/time.h>
 #include "timestamps.h"
 
+// Early startup detection - runs before main()
+__attribute__((constructor))
+void early_startup() {
+    timestamp_t early_timestamp = timestamp();
+    print_timestamp("wasm_init", early_timestamp);
+    printf("STARTUP: WASM runtime initialized, about to enter main()\n");
+    fflush(stdout);
+}
+
 #define DICTIONARY_SIZE 10000
 
 // Large numerical data arrays
@@ -511,8 +520,13 @@ int main(int argc, char **argv) {
     sqlite3 *db;
     int rc;
 
+    // Print startup timestamp immediately 
     timestamp_t start_timestamp = timestamp();
     print_timestamp("main", start_timestamp);
+    
+    // Add early startup marker
+    printf("STARTUP: main() function entered\n");
+    fflush(stdout);
 
 
 
