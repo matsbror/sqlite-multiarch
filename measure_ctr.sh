@@ -52,7 +52,7 @@ echo "Output file: $output_file"
 echo ""
 
 # Create CSV header
-echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s),Repo Size (MB),Host Size (MB)" > $output_file
+echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s),Host Size (MB)" > $output_file
 
 # Function to measure nerdctl pulls
 pull_image_nerdctl() {
@@ -106,13 +106,12 @@ pull_image_nerdctl() {
         accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
         
         # Get image sizes
-        repo_size=$(get_repo_image_size $image $platform)
         host_size=$(get_nerdctl_local_size $image)
         
         # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$repo_size,$host_size" >> $output_file
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$host_size" >> $output_file
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, repo: ${repo_size}MB, host: ${host_size}MB"
+        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -173,13 +172,12 @@ pull_image_docker() {
         accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
         
         # Get image sizes
-        repo_size=$(get_repo_image_size $image $platform)
         host_size=$(get_docker_local_size $image)
         
         # Log to CSV
-        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$repo_size,$host_size" >> $output_file
+        echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$host_size" >> $output_file
         
-        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, repo: ${repo_size}MB, host: ${host_size}MB"
+        echo "pull: ${pull_elapsed}s, exec: ${exec_elapsed}s, host: ${host_size}MB"
     done
 
     avg_pull_time=$(echo "scale=3; $accumulated_pull_time / $n" | bc)
@@ -287,11 +285,26 @@ get_docker_local_size() {
 get_nerdctl_local_size() {
     local image=$1
     
-    # Clean image name for matching
+    # Clean image name for matching - handle different formats
     local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
-    # Try to get size from nerdctl images (similar to docker)
-    local size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$clean_image " | head -1 | awk '{print $2}')
+    # Try different variations of the image name
+    local size_str=""
+    
+    # Try exact match first
+    size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$clean_image " | head -1 | awk '{print $2}')
+    
+    # If not found, try without tag
+    if [ -z "$size_str" ] || [ "$size_str" = "0B" ]; then
+        local repo_only=$(echo $clean_image | cut -d':' -f1)
+        size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$repo_only:" | head -1 | awk '{print $2}')
+    fi
+    
+    # If still not found, try broader match
+    if [ -z "$size_str" ] || [ "$size_str" = "0B" ]; then
+        local repo_name=$(echo $clean_image | cut -d':' -f1 | sed 's/.*\///')
+        size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "$repo_name" | head -1 | awk '{print $2}')
+    fi
     
     if [ -n "$size_str" ] && [ "$size_str" != "0B" ]; then
         # Parse size string (e.g., "14.5MB", "1.2GB")
@@ -398,33 +411,39 @@ try:
     df['Image Type'] = df['Image'].apply(lambda x: 'WebAssembly' if 'wasm' in x else 'Native')
     
     print('Average Performance by Runtime and Image Type:')
-    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Execution Time (s)', 'Repo Size (MB)', 'Host Size (MB)']].mean()
+    summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Execution Time (s)', 'Host Size (MB)']].mean()
     print(summary.round(3))
     
     print('\nOverall averages by Image Type:')
-    overall = df.groupby('Image Type')[['Pull Time (s)', 'Execution Time (s)', 'Repo Size (MB)', 'Host Size (MB)']].mean()
+    overall = df.groupby('Image Type')[['Pull Time (s)', 'Execution Time (s)', 'Host Size (MB)']].mean()
     print(overall.round(3))
     
-    print('\nSize comparison (Native vs WASM):')
-    native_repo = df[df['Image Type'] == 'Native']['Repo Size (MB)'].mean()
-    wasm_repo = df[df['Image Type'] == 'WebAssembly']['Repo Size (MB)'].mean()
+    print('\nHost size comparison (Native vs WASM):')
     native_host = df[df['Image Type'] == 'Native']['Host Size (MB)'].mean()
     wasm_host = df[df['Image Type'] == 'WebAssembly']['Host Size (MB)'].mean()
-    
-    if native_repo > 0 and wasm_repo > 0:
-        repo_ratio = wasm_repo / native_repo
-        print(f'WASM repo size is {repo_ratio:.2f}x the Native repo size ({wasm_repo:.1f}MB vs {native_repo:.1f}MB)')
     
     if native_host > 0 and wasm_host > 0:
         host_ratio = wasm_host / native_host  
         print(f'WASM host size is {host_ratio:.2f}x the Native host size ({wasm_host:.1f}MB vs {native_host:.1f}MB)')
+    elif native_host > 0:
+        print(f'Native host size: {native_host:.1f}MB')
+        print(f'WASM host size: {wasm_host:.1f}MB (detection may need improvement)')
+    else:
+        print('Host size detection needs improvement for both image types')
+    
+    print('\nPull time comparison (Native vs WASM):')
+    native_pull = df[df['Image Type'] == 'Native']['Pull Time (s)'].mean()
+    wasm_pull = df[df['Image Type'] == 'WebAssembly']['Pull Time (s)'].mean()
+    if native_pull > 0 and wasm_pull > 0:
+        pull_ratio = wasm_pull / native_pull
+        print(f'WASM pulls are {pull_ratio:.2f}x slower than Native ({wasm_pull:.3f}s vs {native_pull:.3f}s)')
     
     print('\nExecution time comparison (Native vs WASM):')
     native_exec = df[df['Image Type'] == 'Native']['Execution Time (s)'].mean()
     wasm_exec = df[df['Image Type'] == 'WebAssembly']['Execution Time (s)'].mean()
     if native_exec > 0 and wasm_exec > 0:
         exec_ratio = wasm_exec / native_exec
-        print(f'WebAssembly is {exec_ratio:.2f}x slower than Native for execution ({wasm_exec:.3f}s vs {native_exec:.3f}s)')
+        print(f'WASM execution is {exec_ratio:.2f}x slower than Native ({wasm_exec:.3f}s vs {native_exec:.3f}s)')
     
 except Exception as e:
     print(f'Error analyzing CSV file: {e}')
