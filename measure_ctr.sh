@@ -16,7 +16,7 @@ output_file="timing_results.csv"
 # Image configuration
 NATIVE_REPO="matsbror/massive-sqlite-native"
 WASM_REPO="matsbror/massive-sqlite-wasm"
-TAG="latest"
+TAG="1.0"
 
 # Cache busting configuration
 USE_DIGEST=${USE_DIGEST:-false}

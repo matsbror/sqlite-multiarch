@@ -5,7 +5,7 @@
 set -e
 
 IMAGE_NAME="matsbror/massive-sqlite-native"
-TAG=${TAG:-latest}
+TAG=${TAG:-1.0}
 
 echo "Building multi-architecture Docker images for $IMAGE_NAME:$TAG"
 
