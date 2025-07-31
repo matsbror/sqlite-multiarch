@@ -76,6 +76,8 @@ pull_image_containerd() {
         sudo ctr snapshots prune >/dev/null 2>&1
         # Clear any remaining content with force
         sudo ctr content ls -q 2>/dev/null | head -20 | xargs -r sudo ctr content rm 2>/dev/null || true
+        # Wait a moment for cleanup to complete
+        sleep 0.5
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -94,10 +96,19 @@ pull_image_containerd() {
         
         # Execute container and capture output with timestamps
         exec_output=""
+        exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
             exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image test-container-$i 2>&1)
+            exec_exit_code=$?
         else
             exec_output=$(sudo ctr run --rm $image test-container-$i 2>&1)
+            exec_exit_code=$?
+        fi
+        
+        # Debug: Check if container execution failed
+        if [ $exec_exit_code -ne 0 ]; then
+            echo "WARNING: Container execution failed with exit code $exec_exit_code" >&2
+            echo "Container output: $exec_output" >&2
         fi
         
         # Timestamp after execution complete
@@ -115,6 +126,12 @@ pull_image_containerd() {
             # If sed didn't work, try a simpler approach
             if [ -z "$main_timestamp" ]; then
                 main_timestamp=$(echo "$main_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
+        else
+            # Debug: show why timestamp parsing failed
+            if [ $exec_exit_code -eq 0 ] && [ -n "$exec_output" ]; then
+                echo "DEBUG: No main timestamp found in output. Output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "DEBUG: First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
             fi
         fi
         
@@ -183,9 +200,13 @@ pull_image_docker() {
     do
         echo -n "  Iteration $i/$n... "
         
-        # Remove image if present
-        docker rmi $image >/dev/null 2>&1
+        # Remove image if present - be more aggressive about cleanup
+        docker rmi -f $image >/dev/null 2>&1
         docker system prune -f >/dev/null 2>&1
+        # Also try to remove any stopped containers that might be lingering
+        docker container prune -f >/dev/null 2>&1
+        # Wait a moment for cleanup to complete
+        sleep 0.5
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -204,10 +225,19 @@ pull_image_docker() {
         
         # Execute container and capture output with timestamps
         exec_output=""
+        exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
             exec_output=$(docker run --rm --runtime io.containerd.wasmtime.v1 $image 2>&1)
+            exec_exit_code=$?
         else
             exec_output=$(docker run --rm $image 2>&1)
+            exec_exit_code=$?
+        fi
+        
+        # Debug: Check if container execution failed
+        if [ $exec_exit_code -ne 0 ]; then
+            echo "WARNING: Container execution failed with exit code $exec_exit_code" >&2
+            echo "Container output: $exec_output" >&2
         fi
         
         # Timestamp after execution complete
@@ -225,6 +255,12 @@ pull_image_docker() {
             # If sed didn't work, try a simpler approach
             if [ -z "$main_timestamp" ]; then
                 main_timestamp=$(echo "$main_line" | awk -F', ' '{print $3}' | tr -d '\r\n ')
+            fi
+        else
+            # Debug: show why timestamp parsing failed
+            if [ $exec_exit_code -eq 0 ] && [ -n "$exec_output" ]; then
+                echo "DEBUG: No main timestamp found in output. Output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "DEBUG: First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
             fi
         fi
         
