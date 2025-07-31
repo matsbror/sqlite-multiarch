@@ -54,11 +54,11 @@ echo ""
 # Create CSV header
 echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Execution Time (s),Host Size (MB)" > $output_file
 
-# Function to measure nerdctl pulls
-pull_image_nerdctl() {
+# Function to measure containerd pulls
+pull_image_containerd() {
     local image=$1
     local platform=$2
-    local runtime_name="nerdctl"
+    local runtime_name="containerd"
     local accumulated_pull_time=0
     local accumulated_exec_time=0
 
@@ -68,9 +68,9 @@ pull_image_nerdctl() {
     do
         echo -n "  Iteration $i/$n... "
         
-        # Remove image if present and clear nerdctl cache
-        sudo nerdctl rmi $image 2>/dev/null
-        sudo nerdctl system prune -f >/dev/null 2>&1
+        # Remove image if present and clear containerd cache
+        sudo ctr image rm $image 2>/dev/null
+        sudo ctr image prune --all >/dev/null 2>&1
 
         # Timestamp before starting pull
         start_timestamp=$(date +%s)
@@ -78,9 +78,9 @@ pull_image_nerdctl() {
         
         # Pull image
         if [ -z "$platform" ]; then
-            sudo nerdctl pull $image >/dev/null 2>&1
+            sudo ctr image pull $image >/dev/null 2>&1
         else
-            sudo nerdctl pull --platform $platform $image >/dev/null 2>&1
+            sudo ctr image pull --platform $platform $image >/dev/null 2>&1
         fi
         
         # Timestamp after pull complete
@@ -89,9 +89,9 @@ pull_image_nerdctl() {
         
         # Execute container (with appropriate runtime for WASM)
         if [[ $image == *"wasm"* ]]; then
-            sudo nerdctl run --rm --runtime io.containerd.wasmtime.v1 $image >/dev/null 2>&1
+            sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image test-container-$i >/dev/null 2>&1
         else
-            sudo nerdctl run --rm $image >/dev/null 2>&1
+            sudo ctr run --rm $image test-container-$i >/dev/null 2>&1
         fi
         
         # Timestamp after execution complete
@@ -106,7 +106,7 @@ pull_image_nerdctl() {
         accumulated_exec_time=$(echo "$accumulated_exec_time + $exec_elapsed" | bc)
         
         # Get image sizes
-        host_size=$(get_nerdctl_local_size $image)
+        host_size=$(get_containerd_local_size $image)
         
         # Log to CSV
         echo "$runtime_name,$image,$platform,$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,$exec_elapsed,$host_size" >> $output_file
@@ -281,46 +281,31 @@ get_docker_local_size() {
     fi
 }
 
-# Function to get local image size (nerdctl)
-get_nerdctl_local_size() {
+# Function to get local image size (containerd)
+get_containerd_local_size() {
     local image=$1
     
-    # Clean image name for matching - handle different formats
+    # Clean image name for matching
     local clean_image=$(echo $image | sed 's/docker.io\///' | sed 's/@sha256:.*//')
     
-    # Try different variations of the image name
-    local size_str=""
+    # Try to get size from ctr images ls
+    local size_info=$(sudo ctr images ls 2>/dev/null | grep "$clean_image" | head -1 | awk '{print $3}')
     
-    # Try exact match first
-    size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$clean_image " | head -1 | awk '{print $2}')
-    
-    # If not found, try without tag
-    if [ -z "$size_str" ] || [ "$size_str" = "0B" ]; then
-        local repo_only=$(echo $clean_image | cut -d':' -f1)
-        size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "^$repo_only:" | head -1 | awk '{print $2}')
-    fi
-    
-    # If still not found, try broader match
-    if [ -z "$size_str" ] || [ "$size_str" = "0B" ]; then
-        local repo_name=$(echo $clean_image | cut -d':' -f1 | sed 's/.*\///')
-        size_str=$(sudo nerdctl images --format "{{.Repository}}:{{.Tag}} {{.Size}}" 2>/dev/null | grep "$repo_name" | head -1 | awk '{print $2}')
-    fi
-    
-    if [ -n "$size_str" ] && [ "$size_str" != "0B" ]; then
-        # Parse size string (e.g., "14.5MB", "1.2GB")
-        local size_num=$(echo $size_str | sed 's/[A-Za-z]//g')
-        local size_unit=$(echo $size_str | sed 's/[0-9.]//g')
+    if [ -n "$size_info" ] && [ "$size_info" != "-" ]; then
+        # Parse size (e.g., "14.5MiB", "1.2GiB")
+        local size_num=$(echo $size_info | sed 's/[A-Za-z]//g')
+        local size_unit=$(echo $size_info | sed 's/[0-9.]//g')
         
         case $size_unit in
-            "MB")
+            "MiB")
                 echo "$size_num"
                 return
                 ;;
-            "GB")
+            "GiB")
                 echo "scale=2; $size_num * 1024" | bc 2>/dev/null || echo "0"
                 return
                 ;;
-            "KB")
+            "KiB")
                 echo "scale=2; $size_num / 1024" | bc 2>/dev/null || echo "0"
                 return
                 ;;
@@ -331,10 +316,10 @@ get_nerdctl_local_size() {
         esac
     fi
     
-    # Fallback: use nerdctl inspect
-    local size_bytes=$(sudo nerdctl inspect $image 2>/dev/null | jq -r '.[0].Size // 0' 2>/dev/null)
-    if [ -n "$size_bytes" ] && [ "$size_bytes" != "0" ] && [ "$size_bytes" != "null" ]; then
-        echo "scale=2; $size_bytes / 1048576" | bc 2>/dev/null || echo "0"
+    # Alternative: try to get usage from ctr content
+    local content_size=$(sudo ctr content ls 2>/dev/null | grep -v "DIGEST" | awk '{sum+=$3} END {if(sum>0) print sum/1048576; else print 0}')
+    if [ -n "$content_size" ] && [ "$content_size" != "0" ]; then
+        echo "$content_size"
     else
         echo "0"
     fi
@@ -376,11 +361,11 @@ test_image() {
         echo "Docker not available, skipping Docker tests for $image_type"
     fi
 
-    # Test with nerdctl (if available)
-    if command -v nerdctl >/dev/null 2>&1; then
-        pull_image_nerdctl "$IMAGE" "$platform"
+    # Test with containerd (if available)
+    if command -v ctr >/dev/null 2>&1; then
+        pull_image_containerd "$IMAGE" "$platform"
     else
-        echo "nerdctl not available, skipping nerdctl tests for $image_type"
+        echo "containerd not available, skipping containerd tests for $image_type"
     fi
 }
 
