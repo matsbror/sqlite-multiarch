@@ -3,6 +3,9 @@
 # SQLite Native Architecture Performance Measurement Script
 # Compares pull times between Docker and containerd for current architecture
 
+# Force consistent numeric formatting (dot as decimal separator)
+export LC_NUMERIC=C
+
 # Usage check
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <number_of_times>"
@@ -16,7 +19,7 @@ output_file="timing_results.csv"
 # Image configuration
 NATIVE_REPO="matsbror/massive-sqlite-native"
 WASM_REPO="matsbror/massive-sqlite-wasm"
-TAG="1.0"
+TAG="1.1"
 
 # Cache busting configuration
 USE_DIGEST=${USE_DIGEST:-false}
@@ -171,8 +174,10 @@ pull_image_containerd() {
         accumulated_pull_time=$(echo "$accumulated_pull_time + $pull_elapsed" | bc)
         accumulated_exec_time=$(echo "$accumulated_exec_time + $total_exec_elapsed" | bc)
         
-        # Get image sizes
+        # Get image sizes and ensure proper numeric formatting (no commas)
         host_size=$(get_containerd_local_size $image)
+        # Fix locale issues by normalizing decimal separator and scientific notation
+        host_size=$(echo "$host_size" | sed 's/,/./g' | awk '{printf "%.3f", $1}')
         
         # Log to CSV - ensure no commas in values by quoting and validate field count
         csv_line="\"$runtime_name\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"

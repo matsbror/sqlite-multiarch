@@ -79,7 +79,7 @@ clean:
 
 # Docker build configuration
 DOCKER_IMAGE_NAME ?= matsbror/massive-sqlite-native
-DOCKER_TAG ?= 1.0
+DOCKER_TAG ?= 1.1
 
 # Build and push Docker images for all architectures
 .PHONY: docker-build-push
