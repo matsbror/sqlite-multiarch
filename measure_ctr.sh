@@ -86,10 +86,10 @@ pull_image_containerd() {
         sudo ctr content prune >/dev/null 2>&1
         sudo ctr snapshots prune >/dev/null 2>&1
         # Clear any remaining test containers and snapshots
-        sudo ctr containers rm $(sudo ctr containers ls -q | grep test-container) 2>/dev/null || true
-        sudo ctr snapshots rm $(sudo ctr snapshots ls -q | grep test-container) 2>/dev/null || true
+        sudo ctr containers ls | grep test-container | awk '{print $1}' | xargs -r sudo ctr containers rm 2>/dev/null || true
+        sudo ctr snapshots ls | grep test-container | awk '{print $1}' | xargs -r sudo ctr snapshots rm 2>/dev/null || true
         # Clear any remaining content with force
-        sudo ctr content ls -q 2>/dev/null | head -20 | xargs -r sudo ctr content rm 2>/dev/null || true
+        sudo ctr content ls 2>/dev/null | tail -n +2 | head -20 | awk '{print $1}' | xargs -r sudo ctr content rm 2>/dev/null || true
         # Wait a moment for cleanup to complete
         sleep 0.5
 
