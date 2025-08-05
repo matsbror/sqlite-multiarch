@@ -77,6 +77,9 @@ pull_image_containerd() {
         # Also clear content store blobs and snapshots
         sudo ctr content prune >/dev/null 2>&1
         sudo ctr snapshots prune >/dev/null 2>&1
+        # Clear any remaining test containers and snapshots
+        sudo ctr containers rm $(sudo ctr containers ls -q | grep test-container) 2>/dev/null || true
+        sudo ctr snapshots rm $(sudo ctr snapshots ls -q | grep test-container) 2>/dev/null || true
         # Clear any remaining content with force
         sudo ctr content ls -q 2>/dev/null | head -20 | xargs -r sudo ctr content rm 2>/dev/null || true
         # Wait a moment for cleanup to complete
@@ -98,13 +101,15 @@ pull_image_containerd() {
         pull_complete_time=$(date +%s.%3N)
         
         # Execute container and capture output with timestamps
+        # Use unique container name to avoid snapshot collisions
+        container_name="test-container-$(date +%s%N)-$i"
         exec_output=""
         exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
-            exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image test-container-$i 2>&1)
+            exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image $container_name 2>&1)
             exec_exit_code=$?
         else
-            exec_output=$(sudo ctr run --rm $image test-container-$i 2>&1)
+            exec_output=$(sudo ctr run --rm $image $container_name 2>&1)
             exec_exit_code=$?
         fi
         
