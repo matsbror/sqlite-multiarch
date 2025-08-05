@@ -238,7 +238,7 @@ pull_image_docker() {
         exec_output=""
         exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
-            exec_output=$(docker run --rm --runtime io.containerd.wasmtime.v1 $image 2>&1)
+            exec_output=$(docker run --rm --platform wasi/wasm --runtime io.containerd.wasmtime.v1 $image 2>&1)
             exec_exit_code=$?
         else
             exec_output=$(docker run --rm $image 2>&1)
