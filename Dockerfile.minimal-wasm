@@ -1,0 +1,3 @@
+FROM scratch
+COPY minimal_test.wasm /minimal_test.wasm
+ENTRYPOINT ["/minimal_test.wasm"]

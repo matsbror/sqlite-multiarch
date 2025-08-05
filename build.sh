@@ -21,12 +21,16 @@ docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t ${
 echo "Building RISCV64 image..."
 docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t ${IMAGE_NAME}:${TAG}-riscv64 --provenance false --output type=image,push=true .
 
+# Build WASM image
+echo "Building WASM image..."
+docker buildx build --no-cache --platform wasm -f Dockerfile.wasm -t matsbror/massive-sqlite-wasm:${TAG} --provenance false --output type=image,push=true .
 
 echo "All builds completed successfully!"
 echo "Images created:"
 echo "  ${IMAGE_NAME}:${TAG}-amd64"
 echo "  ${IMAGE_NAME}:${TAG}-arm64" 
 echo "  ${IMAGE_NAME}:${TAG}-riscv64"
+echo "  matsbror/massive-sqlite-wasm:${TAG}"
 
 # Optional: Create and push multi-arch manifest
 if command -v docker manifest &> /dev/null; then

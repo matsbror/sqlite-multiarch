@@ -91,11 +91,14 @@ docker-build-push:
 	docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --output type=image,push=true .
 	@echo "Building RISC-V image..."
 	docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --output type=image,push=true .
+	@echo "Building WASM image..."
+	docker buildx build --no-cache --platform wasm -f Dockerfile.wasm -t matsbror/massive-sqlite-wasm:$(DOCKER_TAG) --provenance false --output type=image,push=true .
 	@echo "All builds completed successfully!"
 	@echo "Images created:"
 	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-amd64"
 	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64"
 	@echo "  $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64"
+	@echo "  matsbror/massive-sqlite-wasm:$(DOCKER_TAG)"
 	@if command -v docker manifest >/dev/null 2>&1; then \
 		echo "Creating multi-architecture manifest..."; \
 		docker manifest create $(DOCKER_IMAGE_NAME):$(DOCKER_TAG) \
@@ -122,12 +125,21 @@ docker-build:
 	docker buildx build --no-cache --platform linux/arm64 -f Dockerfile.native -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-arm64 --provenance false --load .
 	@echo "Building RISC-V image..."
 	docker buildx build --no-cache --platform linux/riscv64 -f Dockerfile.riscv64 -t $(DOCKER_IMAGE_NAME):$(DOCKER_TAG)-riscv64 --provenance false --load .
+	@echo "Building WASM image..."
+	docker buildx build --no-cache --platform wasm -f Dockerfile.wasm -t matsbror/massive-sqlite-wasm:$(DOCKER_TAG) --provenance false --load .
 	@echo "Local Docker builds completed successfully!"
 
 # Test native binary
 .PHONY: test-native
 test-native: $(TARGET_NATIVE)
 	./$(TARGET_NATIVE)
+
+# Build minimal WASM test
+.PHONY: minimal-wasm
+minimal-wasm:
+	clang --target=wasm32-wasi --sysroot=$(WASI_SYSROOT) \
+		-O2 minimal_wasm_test.c -o minimal_test.wasm
+	docker build -f Dockerfile.minimal-wasm -t minimal-wasm-test:latest .
 
 # Test WASM binary (requires wasmtime)
 .PHONY: test-wasm
