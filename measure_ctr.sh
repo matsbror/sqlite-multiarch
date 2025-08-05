@@ -21,6 +21,9 @@ NATIVE_REPO="matsbror/massive-sqlite-native"
 WASM_REPO="matsbror/massive-sqlite-wasm"
 TAG="1.1"
 
+# WASM runtimes to test
+WASM_RUNTIMES=("wasmtime" "wamr" "wasmer")
+
 # Cache busting configuration
 USE_DIGEST=${USE_DIGEST:-false}
 
@@ -55,17 +58,22 @@ echo "Output file: $output_file"
 echo ""
 
 # Create CSV header
-echo "Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Container Start to Main Time (s),Main to Elapsed Time (s),Total Execution Time (s),Host Size (MB)" > $output_file
+echo "Runtime,WASM_Runtime,Image,Platform,Iteration,Start Timestamp,Pull Complete Timestamp,Execution Complete Timestamp,Pull Time (s),Container Start to Main Time (s),Main to Elapsed Time (s),Total Execution Time (s),Host Size (MB)" > $output_file
 
 # Function to measure containerd pulls
 pull_image_containerd() {
     local image=$1
     local platform=$2
+    local wasm_runtime=$3
     local runtime_name="containerd"
     local accumulated_pull_time=0
     local accumulated_exec_time=0
 
-    echo "Testing $runtime_name: $image ($platform)"
+    if [[ $image == *"wasm"* ]]; then
+        echo "Testing $runtime_name with $wasm_runtime: $image ($platform)"
+    else
+        echo "Testing $runtime_name: $image ($platform)"
+    fi
     
     for ((i=1; i<=n; i++))
     do
@@ -106,8 +114,26 @@ pull_image_containerd() {
         exec_output=""
         exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
-            exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image $container_name 2>&1)
-            exec_exit_code=$?
+            # Use the appropriate WASM runtime
+            case $wasm_runtime in
+                "wasmtime")
+                    exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image $container_name 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                "wamr")
+                    exec_output=$(sudo ctr run --rm --runtime io.containerd.wamr.v1 $image $container_name 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                "wasmer")
+                    exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmer.v1 $image $container_name 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                *)
+                    echo "Unknown WASM runtime: $wasm_runtime" >&2
+                    exec_output=$(sudo ctr run --rm --runtime io.containerd.wasmtime.v1 $image $container_name 2>&1)
+                    exec_exit_code=$?
+                    ;;
+            esac
         else
             exec_output=$(sudo ctr run --rm $image $container_name 2>&1)
             exec_exit_code=$?
@@ -185,12 +211,16 @@ pull_image_containerd() {
         host_size=$(echo "$host_size" | sed 's/,/./g' | awk '{printf "%.3f", $1}')
         
         # Log to CSV - ensure no commas in values by quoting and validate field count
-        csv_line="\"$runtime_name\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        if [[ $image == *"wasm"* ]]; then
+            csv_line="\"$runtime_name\",\"$wasm_runtime\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        else
+            csv_line="\"$runtime_name\",\"N/A\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        fi
         field_count=$(echo "$csv_line" | tr ',' '\n' | wc -l)
-        if [ "$field_count" -eq 12 ]; then
+        if [ "$field_count" -eq 13 ]; then
             echo "$csv_line" >> $output_file
         else
-            echo "ERROR: CSV line has $field_count fields instead of 12: $csv_line" >&2
+            echo "ERROR: CSV line has $field_count fields instead of 13: $csv_line" >&2
         fi
         
         echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
@@ -206,11 +236,16 @@ pull_image_containerd() {
 pull_image_docker() {
     local image=$1
     local platform=$2
+    local wasm_runtime=$3
     local runtime_name="docker"
     local accumulated_pull_time=0
     local accumulated_exec_time=0
 
-    echo "Testing $runtime_name: $image ($platform)"
+    if [[ $image == *"wasm"* ]]; then
+        echo "Testing $runtime_name with $wasm_runtime: $image ($platform)"
+    else
+        echo "Testing $runtime_name: $image ($platform)"
+    fi
     
     for ((i=1; i<=n; i++))
     do
@@ -243,8 +278,26 @@ pull_image_docker() {
         exec_output=""
         exec_exit_code=0
         if [[ $image == *"wasm"* ]]; then
-            exec_output=$(docker run --rm --platform wasm --runtime io.containerd.wasmtime.v1 $image 2>&1)
-            exec_exit_code=$?
+            # Use the appropriate WASM runtime
+            case $wasm_runtime in
+                "wasmtime")
+                    exec_output=$(docker run --rm --platform wasm --runtime io.containerd.wasmtime.v1 $image 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                "wamr")
+                    exec_output=$(docker run --rm --platform wasm --runtime io.containerd.wamr.v1 $image 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                "wasmer")
+                    exec_output=$(docker run --rm --platform wasm --runtime io.containerd.wasmer.v1 $image 2>&1)
+                    exec_exit_code=$?
+                    ;;
+                *)
+                    echo "Unknown WASM runtime: $wasm_runtime" >&2
+                    exec_output=$(docker run --rm --platform wasm --runtime io.containerd.wasmtime.v1 $image 2>&1)
+                    exec_exit_code=$?
+                    ;;
+            esac
         else
             exec_output=$(docker run --rm $image 2>&1)
             exec_exit_code=$?
@@ -320,12 +373,16 @@ pull_image_docker() {
         host_size=$(get_docker_local_size $image)
         
         # Log to CSV - ensure no commas in values by quoting and validate field count
-        csv_line="\"$runtime_name\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        if [[ $image == *"wasm"* ]]; then
+            csv_line="\"$runtime_name\",\"$wasm_runtime\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        else
+            csv_line="\"$runtime_name\",\"N/A\",\"$image\",\"$platform\",$i,$start_timestamp,$pull_complete_timestamp,$exec_complete_timestamp,$pull_elapsed,\"$container_to_main\",\"$main_to_elapsed\",$total_exec_elapsed,$host_size"
+        fi
         field_count=$(echo "$csv_line" | tr ',' '\n' | wc -l)
-        if [ "$field_count" -eq 12 ]; then
+        if [ "$field_count" -eq 13 ]; then
             echo "$csv_line" >> $output_file
         else
-            echo "ERROR: CSV line has $field_count fields instead of 12: $csv_line" >&2
+            echo "ERROR: CSV line has $field_count fields instead of 13: $csv_line" >&2
         fi
         
         echo "pull: ${pull_elapsed}s, start->main: ${container_to_main}s, main->elapsed: ${main_to_elapsed}s, total exec: ${total_exec_elapsed}s, host: ${host_size}MB"
@@ -482,6 +539,7 @@ test_image() {
     local base_image=$1
     local platform=$2
     local image_type=$3
+    local wasm_runtime=$4
     
     local IMAGE="$base_image"
     
@@ -507,14 +565,14 @@ test_image() {
 
     # Test with Docker (if available)
     if command -v docker >/dev/null 2>&1; then
-        pull_image_docker "$IMAGE" "$platform"
+        pull_image_docker "$IMAGE" "$platform" "$wasm_runtime"
     else
         echo "Docker not available, skipping Docker tests for $image_type"
     fi
 
     # Test with containerd (if available)
     if command -v ctr >/dev/null 2>&1; then
-        pull_image_containerd "$IMAGE" "$platform"
+        pull_image_containerd "$IMAGE" "$platform" "$wasm_runtime"
     else
         echo "containerd not available, skipping containerd tests for $image_type"
     fi
@@ -526,11 +584,15 @@ echo ""
 
 # Test native architecture image (multiarch)
 NATIVE_IMAGE="docker.io/$NATIVE_REPO:$TAG"
-test_image "$NATIVE_IMAGE" "$PLATFORM" "Native ($ARCH)"
+test_image "$NATIVE_IMAGE" "$PLATFORM" "Native ($ARCH)" "N/A"
 
-# Test WebAssembly image
+# Test WebAssembly image with each runtime
 WASM_IMAGE="docker.io/$WASM_REPO:$TAG"
-test_image "$WASM_IMAGE" "wasm" "WebAssembly"
+for wasm_runtime in "${WASM_RUNTIMES[@]}"; do
+    echo ""
+    echo "=== Testing WASM Runtime: $wasm_runtime ==="
+    test_image "$WASM_IMAGE" "wasm" "WebAssembly ($wasm_runtime)" "$wasm_runtime"
+done
 
 echo "Performance measurement completed!"
 echo "Results saved to: $output_file"
@@ -554,6 +616,10 @@ try:
     print('Average Performance by Runtime and Image Type:')
     summary = df.groupby(['Runtime', 'Image Type'])[['Pull Time (s)', 'Container Start to Main Time (s)', 'Main to Elapsed Time (s)', 'Total Execution Time (s)', 'Host Size (MB)']].mean()
     print(summary.round(3))
+    
+    print('\nWASM Runtime Comparison:')
+    wasm_summary = df[df['Image Type'] == 'WebAssembly'].groupby(['Runtime', 'WASM_Runtime'])[['Pull Time (s)', 'Container Start to Main Time (s)', 'Main to Elapsed Time (s)', 'Total Execution Time (s)', 'Host Size (MB)']].mean()
+    print(wasm_summary.round(3))
     
     print('\nOverall averages by Image Type:')
     overall = df.groupby('Image Type')[['Pull Time (s)', 'Container Start to Main Time (s)', 'Main to Elapsed Time (s)', 'Total Execution Time (s)', 'Host Size (MB)']].mean()
