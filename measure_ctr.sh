@@ -97,16 +97,33 @@ pull_image_containerd() {
         start_timestamp=$(date +%s)
         start_time=$(date +%s.%3N)
         
-        # Pull image
+        # Pull image with validation
+        pull_success=false
         if [ -z "$platform" ]; then
-            sudo ctr image pull $image >/dev/null 2>&1
+            if sudo ctr image pull $image >/dev/null 2>&1; then
+                pull_success=true
+            fi
         else
-            sudo ctr image pull --platform $platform $image >/dev/null 2>&1
+            if sudo ctr image pull --platform $platform $image >/dev/null 2>&1; then
+                pull_success=true
+            fi
         fi
         
         # Timestamp after pull complete
         pull_complete_timestamp=$(date +%s)
         pull_complete_time=$(date +%s.%3N)
+        
+        # Verify image was actually pulled
+        if [ "$pull_success" = false ]; then
+            echo "ERROR: Failed to pull image $image" >&2
+            continue
+        fi
+        
+        # Double-check image exists locally
+        if ! sudo ctr image ls | grep -q "$(echo $image | sed 's/docker.io\///' | sed 's/@sha256.*//')"; then
+            echo "ERROR: Image $image not found locally after pull" >&2
+            continue
+        fi
         
         # Execute container and capture output with timestamps
         # Use unique container name to avoid snapshot collisions
@@ -141,8 +158,27 @@ pull_image_containerd() {
         
         # Debug: Check if container execution failed
         if [ $exec_exit_code -ne 0 ]; then
-            echo "WARNING: Container execution failed with exit code $exec_exit_code" >&2
+            echo "ERROR: Container execution failed with exit code $exec_exit_code" >&2
             echo "Container output: $exec_output" >&2
+            echo "Skipping this iteration..." >&2
+            continue
+        fi
+        
+        # Validate container execution - check for expected output
+        if [[ $image == *"wasm"* ]]; then
+            if ! echo "$exec_output" | grep -q "main, timestamp\|wasm_init\|STARTUP"; then
+                echo "ERROR: Container ran but produced no expected output" >&2
+                echo "Container output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
+                continue
+            fi
+        else
+            if ! echo "$exec_output" | grep -q "main, timestamp\|SQLite\|Massive"; then
+                echo "ERROR: Native container ran but produced no expected output" >&2
+                echo "Container output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
+                continue
+            fi
         fi
         
         # Timestamp after execution complete
@@ -305,8 +341,27 @@ pull_image_docker() {
         
         # Debug: Check if container execution failed
         if [ $exec_exit_code -ne 0 ]; then
-            echo "WARNING: Container execution failed with exit code $exec_exit_code" >&2
+            echo "ERROR: Container execution failed with exit code $exec_exit_code" >&2
             echo "Container output: $exec_output" >&2
+            echo "Skipping this iteration..." >&2
+            continue
+        fi
+        
+        # Validate container execution - check for expected output
+        if [[ $image == *"wasm"* ]]; then
+            if ! echo "$exec_output" | grep -q "main, timestamp\|wasm_init\|STARTUP"; then
+                echo "ERROR: Container ran but produced no expected output" >&2
+                echo "Container output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
+                continue
+            fi
+        else
+            if ! echo "$exec_output" | grep -q "main, timestamp\|SQLite\|Massive"; then
+                echo "ERROR: Native container ran but produced no expected output" >&2
+                echo "Container output length: $(echo "$exec_output" | wc -c) chars" >&2
+                echo "First 200 chars: $(echo "$exec_output" | head -c 200)" >&2
+                continue
+            fi
         fi
         
         # Timestamp after execution complete
@@ -580,6 +635,11 @@ test_image() {
 
 echo "Starting performance measurements: Native vs WebAssembly comparison"
 echo "Use digest: $USE_DIGEST"
+echo ""
+
+# Debug: Show what images are available locally before starting
+echo "Debug: Currently available containerd images:"
+sudo ctr image ls | head -10
 echo ""
 
 # Test native architecture image (multiarch)
