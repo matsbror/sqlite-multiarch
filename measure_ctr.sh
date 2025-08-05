@@ -536,8 +536,12 @@ if command -v python3 >/dev/null 2>&1; then
     python3 -c "
 import pandas as pd
 try:
-    # Read CSV with error handling for malformed lines
-    df = pd.read_csv('$output_file', on_bad_lines='skip', quoting=1)
+    # Read CSV with error handling for malformed lines (compatible with older pandas)
+    try:
+        df = pd.read_csv('$output_file', on_bad_lines='skip', quoting=1)
+    except TypeError:
+        # Fallback for older pandas versions without on_bad_lines parameter
+        df = pd.read_csv('$output_file', error_bad_lines=False, warn_bad_lines=False, quoting=1)
     
     # Determine image type based on image name
     df['Image Type'] = df['Image'].apply(lambda x: 'WebAssembly' if 'wasm' in x else 'Native')

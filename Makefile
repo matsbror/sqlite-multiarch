@@ -64,6 +64,19 @@ wasm: $(TARGET_WASM)
 
 $(TARGET_WASM): $(SOURCES) $(HEADERS)
 	$(WASI_CC) $(CFLAGS_WASM) $(WASI_FLAGS) $(SOURCES) -o $(TARGET_WASM) $(LIBS)
+	@echo "Optimizing WASM binary..."
+	@if command -v wasm-opt >/dev/null 2>&1; then \
+		wasm-opt -O3 --enable-bulk-memory --enable-sign-ext $(TARGET_WASM) -o $(TARGET_WASM).tmp && mv $(TARGET_WASM).tmp $(TARGET_WASM); \
+		echo "Applied wasm-opt optimizations"; \
+	else \
+		echo "wasm-opt not found - install wabt tools for optimization"; \
+	fi
+	@if command -v wasm-strip >/dev/null 2>&1; then \
+		wasm-strip $(TARGET_WASM); \
+		echo "Stripped debug info from WASM binary"; \
+	else \
+		echo "wasm-strip not found - install wabt tools for stripping"; \
+	fi
 
 # Generate dictionary header (if needed)
 .PHONY: dictionary
