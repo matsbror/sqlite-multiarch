@@ -129,7 +129,8 @@ if __name__ == "__main__":
         print("\n🎉 Successfully combined architecture timing results!")
         print("\nNext steps:")
         print("1. Use the combined CSV with the Jupyter notebook for cross-architecture analysis")
-        print("2. Run: jupyter notebook analyze_timing_results.ipynb")
+        print("2. Run: source venv/bin/activate && jupyter notebook analyze_multiarch_results.ipynb")
+        print("   (Or: jupyter notebook analyze_multiarch_results.ipynb if venv already active)")
         print("3. The notebook will automatically detect the architecture column for comparison")
     else:
         print("\n❌ Failed to combine results. Please check that the timing files exist.")
